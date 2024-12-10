@@ -19,3 +19,6 @@ gradle-app.setting
 .project
 # JDT-specific (Eclipse Java Development Tools)
 .classpath
+
+# Why would I sync this?
+mcserver-dcthread.code-workspace
