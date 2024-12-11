@@ -1,36 +1,26 @@
-// Minecraft & Fabric imports
+package com.mcserverdcthread;
+
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.message.v1.ServerMessageEvents;
-import net.fabricmc.fabric.api.entity.event.v1.ServerEntityCombatEvents;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
 import net.minecraft.server.MinecraftServer;
-
-// Discord imports
 import discord4j.core.DiscordClient;
 import discord4j.core.GatewayDiscordClient;
 import discord4j.core.event.domain.message.MessageCreateEvent;
-import discord4j.core.event.domain.interaction.ChatInputInteractionEvent;
 import discord4j.core.object.presence.ClientPresence;
 import discord4j.core.object.presence.ClientActivity;
-
-// Third-party imports
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import okhttp3.*;
 import reactor.core.publisher.Mono;
 
-// Java imports
 import java.io.*;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Map;
-import java.util.HashMap;
-import java.util.Random;
-import java.util.UUID;
-import java.util.Queue;
+import java.util.*;
 import java.util.concurrent.*;
 
 public class DiscordBridgeMod implements ModInitializer {
@@ -85,9 +75,19 @@ public class DiscordBridgeMod implements ModInitializer {
             updateBotStatus();
             ServerPlayerEntity player = handler.getPlayer();
             queueMessage(player.getName().getString() + " joined the game");
-        });
+            
+            // Register advancement listener for this player
+            player.getAdvancementTracker().addListener(new AdvancementCallback() {
+                @Override
+                public void onAdvancement(Advancement advancement) {
+                    if (advancement.getDisplay() != null && advancement.getDisplay().shouldAnnounceToChat()) {
+                        queueMessage(player.getName().getString() + " has made the advancement [" +
+                            advancement.getDisplay().getTitle().getString() + "]");
+                    }
+                }
+            });
 
-        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
+        });        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
             playerCount--;
             updateBotStatus();
             ServerPlayerEntity player = handler.getPlayer();
@@ -103,36 +103,70 @@ public class DiscordBridgeMod implements ModInitializer {
             }
 
             switch (msg) {
-                case "/players":
-                    showPlayerList(sender);
-                    break;
-                case "/uptime":
-                    showUptime(sender);
-                    break;
-                default:
-                    sendWebhookMessage(
-                        message.getContent().getString(),
-                        sender.getName().getString(),
-                        "https://mc-heads.net/avatar/" + sender.getUuid().toString()
-                    );
+                case "/players" -> showPlayerList(sender);
+                case "/uptime" -> showUptime(sender);
+                default -> sendWebhookMessage(
+                    message.getContent().getString(),
+                    sender.getName().getString(),
+                    "https://mc-heads.net/avatar/" + sender.getUuid().toString()
+                );
             }
         });
+    }
 
-        ServerEntityCombatEvents.AFTER_DEATH.register((entity, source) -> {
-            if (entity instanceof ServerPlayerEntity) {
-                queueMessage(source.getDeathMessage().getString());
-            }
-        });
+    private void setupDiscordBot() {
+        DiscordClient.create(config.bot_token)
+            .withGateway(gateway -> {
+                this.discordClient = gateway;
+                updateBotStatus();
 
-        ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
-            ServerPlayerEntity player = handler.getPlayer();
-            player.getAdvancementTracker().setListener((advancement, criterionName) -> {
-                if (advancement.getDisplay() != null && advancement.getDisplay().shouldAnnounce()) {
-                    queueMessage(player.getName().getString() + " has made the advancement [" +
-                        advancement.getDisplay().getTitle().getString() + "]");
-                }
-            });
-        });
+                gateway.on(MessageCreateEvent.class)
+                    .filter(event -> event.getMessage().getChannelId().asString().equals(config.thread_id))
+                    .filter(event -> !event.getMessage().getAuthor().map(user -> user.isBot()).orElse(true))
+                    .subscribe(event -> {
+                        String discordId = event.getMessage().getAuthor().get().getId().asString();
+                        String displayName = event.getMessage().getAuthor().map(user -> user.getUsername()).orElse("Unknown");
+                        String content = event.getMessage().getContent();
+
+                        if (content.startsWith("!link")) {
+                            String code = generateVerificationCode();
+                            linkedAccounts.verificationCodes.put(code, discordId);
+                            event.getMessage().getChannel()
+                                .flatMap(channel -> channel.createMessage(MessageCreateSpec.builder()
+                                    .content("Your verification code is: " + code + 
+                                    "\nUse /dclink <code> in Minecraft to link your account")
+                                    .build()))
+                                .subscribe();
+                            return;
+                        }
+
+                        if (linkedAccounts.discordToMinecraft.containsKey(discordId)) {
+                            String minecraftUuid = linkedAccounts.discordToMinecraft.get(discordId);
+                            ServerPlayerEntity player = server.getPlayerManager().getPlayer(UUID.fromString(minecraftUuid));
+                            if (player != null) {
+                                displayName = player.getName().getString();
+                            }
+                        }
+
+                        if (server != null) {
+                            server.getPlayerManager().broadcast(
+                                Text.literal("§9[Discord] §r" + displayName + ": " + content),
+                                false
+                            );
+                        }
+                    });
+
+                return Mono.never();
+            })
+            .subscribe();
+    }
+
+    private void sendBotMessage(String content) {
+        if (discordClient != null) {
+            discordClient.getChannelById(discord4j.common.util.Snowflake.of(config.thread_id))
+                .createMessage(content)
+                .subscribe();
+        }
     }
 
     private void setupMessageQueue() {
@@ -187,74 +221,12 @@ public class DiscordBridgeMod implements ModInitializer {
         }
     }
 
-    private void setupDiscordBot() {
-        DiscordClient.create(config.bot_token)
-            .withGateway(client -> {
-                this.discordClient = client;
-                updateBotStatus();
-
-                client.getRestClient().getApplicationService()
-                    .createGlobalApplicationCommand(client.getApplicationId().block(), ApplicationCommandRequest.builder()
-                        .name("link")
-                        .description("Link your Discord account to Minecraft")
-                        .build())
-                    .subscribe();
-
-                client.on(ChatInputInteractionEvent.class)
-                    .filter(event -> event.getCommandName().equals("link"))
-                    .subscribe(event -> {
-                        String discordId = event.getInteraction().getUser().getId().asString();
-                        String code = generateVerificationCode();
-                        linkedAccounts.verificationCodes.put(code, discordId);
-                        event.reply()
-                            .withContent("Your verification code is: " + code + "\nUse /dclink <code> in Minecraft to link your account")
-                            .withEphemeral(true)
-                            .subscribe();
-                    });
-
-                client.on(MessageCreateEvent.class)
-                    .filter(event -> event.getMessage().getChannelId().asString().equals(config.thread_id))
-                    .filter(event -> !event.getMessage().getAuthor().map(user -> user.isBot()).orElse(true))
-                    .subscribe(event -> {
-                        String discordId = event.getMessage().getAuthor().get().getId().asString();
-                        String displayName = event.getMessage().getAuthor().map(user -> user.getUsername()).orElse("Unknown");
-
-                        if (linkedAccounts.discordToMinecraft.containsKey(discordId)) {
-                            String minecraftUuid = linkedAccounts.discordToMinecraft.get(discordId);
-                            ServerPlayerEntity player = server.getPlayerManager().getPlayer(UUID.fromString(minecraftUuid));
-                            if (player != null) {
-                                displayName = player.getName().getString();
-                            }
-                        }
-
-                        String content = event.getMessage().getContent();
-                        if (server != null) {
-                            server.getPlayerManager().broadcast(
-                                Text.literal("§9[Discord] §r" + displayName + ": " + content),
-                                false
-                            );
-                        }
-                    });
-
-                return Mono.never();
-            })
-            .subscribe();
-    }
-
     private void updateBotStatus() {
         if (discordClient != null) {
             String status = (playerCount > 0)
                 ? "#" + playerCount + " playing LonkMC"
                 : "No-one playing LonkMC";
             discordClient.updatePresence(ClientPresence.online(ClientActivity.playing(status))).subscribe();
-        }
-    }
-
-    private void sendBotMessage(String content) {
-        if (discordClient != null) {
-            discordClient.getChannelById(discord4j.common.util.Snowflake.of(config.thread_id))
-                .createMessage(content)
-                .subscribe();
         }
     }
 

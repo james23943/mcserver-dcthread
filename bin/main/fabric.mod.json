@@ -1,0 +1,23 @@
+
+{
+  "schemaVersion": 1,
+  "id": "mcserver-dcthread",
+  "version": "1.0.0",
+  "name": "MC Server Discord Thread",
+  "description": "Links Minecraft server chat with a Discord thread",
+  "authors": [],
+  "contact": {},
+  "license": "MIT",
+  "environment": "server",
+  "entrypoints": {
+    "main": [
+      "com.mcserverdcthread.DiscordBridgeMod"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.14.0",
+    "fabric": "*",
+    "minecraft": "1.20.x",
+    "java": ">=17"
+  }
+}

@@ -1,0 +1,7 @@
+
+{
+    "webhook_url": "YOUR_WEBHOOK_URL",
+    "thread_id": "YOUR_THREAD_ID",
+    "bot_token": "YOUR_BOT_TOKEN",
+    "startup_message": "YOUR_STARTUP_MESSAGE"
+}
