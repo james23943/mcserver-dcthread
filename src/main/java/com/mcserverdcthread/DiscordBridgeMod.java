@@ -55,6 +55,7 @@ public class DiscordBridgeMod implements ModInitializer {
         String webhook_url;
         String thread_id;
         String bot_token;
+        String startup_message;
     }
 
     private static class LinkedAccounts {
@@ -72,7 +73,7 @@ public class DiscordBridgeMod implements ModInitializer {
 
         ServerLifecycleEvents.SERVER_STARTING.register(server -> {
             this.server = server;
-            queueMessage("The server is live! Join us here: **51.161.207.149:25574**\n\nDetails: https://docs.google.com/document/d/1S2M-LyrxpnSr_6epuYnKIH2guiOCYABxFeMYDPp_Duo/edit?tab=t.0");
+            queueMessage(config.startup_message);
         });
 
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> 
