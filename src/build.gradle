@@ -2,6 +2,7 @@ plugins {
     id 'fabric-loom' version '1.4-SNAPSHOT'
     id 'maven-publish'
     id 'java'
+    id 'base'
 }
 
 version = '1.0.0'
@@ -9,13 +10,14 @@ group = 'com.mcserverdcthread'
 
 repositories {
     mavenCentral()
+    maven { url "https://maven.fabricmc.net/" }
 }
 
 dependencies {
     minecraft "com.mojang:minecraft:1.21.3"
     mappings "net.fabricmc:yarn:1.21.3+build.1:v2"
     modImplementation "net.fabricmc:fabric-loader:0.15.0"
-    modImplementation "net.fabricmc.fabric-api:fabric-api:0.91.0+1.21.3"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:0.91.2+1.21.3"
     
     implementation 'com.squareup.okhttp3:okhttp:4.9.1'
     implementation 'com.google.code.gson:gson:2.8.9'
