@@ -1,3 +1,4 @@
+// Minecraft & Fabric imports
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
@@ -6,14 +7,22 @@ import net.fabricmc.fabric.api.entity.event.v1.ServerEntityCombatEvents;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
 import net.minecraft.server.MinecraftServer;
-import com.google.gson.Gson;
-import com.google.gson.JsonObject;
+
+// Discord imports
 import discord4j.core.DiscordClient;
 import discord4j.core.GatewayDiscordClient;
 import discord4j.core.event.domain.message.MessageCreateEvent;
+import discord4j.core.event.domain.interaction.ChatInputInteractionEvent;
 import discord4j.core.object.presence.ClientPresence;
 import discord4j.core.object.presence.ClientActivity;
+
+// Third-party imports
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import okhttp3.*;
+import reactor.core.publisher.Mono;
+
+// Java imports
 import java.io.*;
 import java.time.Duration;
 import java.time.Instant;
@@ -23,7 +32,6 @@ import java.util.Random;
 import java.util.UUID;
 import java.util.Queue;
 import java.util.concurrent.*;
-import reactor.core.publisher.Mono;
 
 public class DiscordBridgeMod implements ModInitializer {
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
@@ -62,7 +70,6 @@ public class DiscordBridgeMod implements ModInitializer {
         startTime = Instant.now();
         setupMessageQueue();
 
-        // Server status events
         ServerLifecycleEvents.SERVER_STARTING.register(server -> {
             this.server = server;
             queueMessage("The server is live! Join us here: **51.161.207.149:25574**\n\nDetails: https://docs.google.com/document/d/1S2M-LyrxpnSr_6epuYnKIH2guiOCYABxFeMYDPp_Duo/edit?tab=t.0");
@@ -72,7 +79,6 @@ public class DiscordBridgeMod implements ModInitializer {
             queueMessage("Server is shutting down...")
         );
 
-        // Player join/leave events
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             playerCount++;
             updateBotStatus();
@@ -87,7 +93,6 @@ public class DiscordBridgeMod implements ModInitializer {
             queueMessage(player.getName().getString() + " left the game");
         });
 
-        // Chat events with commands
         ServerMessageEvents.CHAT_MESSAGE.register((message, sender, params) -> {
             String msg = message.getContent().getString();
 
@@ -97,9 +102,6 @@ public class DiscordBridgeMod implements ModInitializer {
             }
 
             switch (msg) {
-                case "/link":
-                    sender.sendMessage(Text.literal("Join us here: 51.161.207.149:25574"));
-                    break;
                 case "/players":
                     showPlayerList(sender);
                     break;
@@ -107,7 +109,6 @@ public class DiscordBridgeMod implements ModInitializer {
                     showUptime(sender);
                     break;
                 default:
-                    // Regular chat message
                     sendWebhookMessage(
                         message.getContent().getString(),
                         sender.getName().getString(),
@@ -116,14 +117,12 @@ public class DiscordBridgeMod implements ModInitializer {
             }
         });
 
-        // Death events
         ServerEntityCombatEvents.AFTER_DEATH.register((entity, source) -> {
             if (entity instanceof ServerPlayerEntity) {
                 queueMessage(source.getDeathMessage().getString());
             }
         });
 
-        // Advancement events
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             ServerPlayerEntity player = handler.getPlayer();
             player.getAdvancementTracker().setListener((advancement, criterionName) -> {
@@ -141,7 +140,7 @@ public class DiscordBridgeMod implements ModInitializer {
             while ((message = messageQueue.poll()) != null) {
                 try {
                     sendBotMessage(message);
-                    Thread.sleep(1000); // Rate limit protection
+                    Thread.sleep(1000);
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -193,6 +192,25 @@ public class DiscordBridgeMod implements ModInitializer {
                 this.discordClient = client;
                 updateBotStatus();
 
+                client.getRestClient().getApplicationService()
+                    .createGlobalApplicationCommand(client.getApplicationId().block(), ApplicationCommandRequest.builder()
+                        .name("link")
+                        .description("Link your Discord account to Minecraft")
+                        .build())
+                    .subscribe();
+
+                client.on(ChatInputInteractionEvent.class)
+                    .filter(event -> event.getCommandName().equals("link"))
+                    .subscribe(event -> {
+                        String discordId = event.getInteraction().getUser().getId().asString();
+                        String code = generateVerificationCode();
+                        linkedAccounts.verificationCodes.put(code, discordId);
+                        event.reply()
+                            .withContent("Your verification code is: " + code + "\nUse /dclink <code> in Minecraft to link your account")
+                            .withEphemeral(true)
+                            .subscribe();
+                    });
+
                 client.on(MessageCreateEvent.class)
                     .filter(event -> event.getMessage().getChannelId().asString().equals(config.thread_id))
                     .filter(event -> !event.getMessage().getAuthor().map(user -> user.isBot()).orElse(true))
@@ -209,13 +227,7 @@ public class DiscordBridgeMod implements ModInitializer {
                         }
 
                         String content = event.getMessage().getContent();
-                        if (content.startsWith("!link")) {
-                            String code = generateVerificationCode();
-                            linkedAccounts.verificationCodes.put(code, discordId);
-                            event.getMessage().getChannel().createMessage(
-                                "Your verification code is: " + code + "\nUse /dclink <code> in Minecraft to link your account"
-                            ).subscribe();
-                        } else if (server != null) {
+                        if (server != null) {
                             server.getPlayerManager().broadcast(
                                 Text.literal("§9[Discord] §r" + displayName + ": " + content),
                                 false
