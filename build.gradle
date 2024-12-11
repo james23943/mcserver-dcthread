@@ -1,0 +1,41 @@
+plugins {
+    id 'fabric-loom' version '1.4-SNAPSHOT'
+    id 'maven-publish'
+    id 'java'
+}
+
+version = '1.0.0'
+group = 'com.mcserverdcthread'
+
+repositories {
+    mavenCentral()
+    maven { url "https://maven.fabricmc.net/" }
+    maven { url 'https://repo.spring.io/milestone' }
+    maven { url 'https://repo.spring.io/snapshot' }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:1.21.3"
+    mappings "net.fabricmc:yarn:1.21.3+build.1:v2"
+    modImplementation "net.fabricmc:fabric-loader:0.15.0"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:0.91.2+1.21.3"
+    
+    // Discord4J
+    implementation 'com.discord4j:discord4j-core:3.3.0'
+    
+    // OkHttp
+    implementation 'com.squareup.okhttp3:okhttp:4.9.1'
+    
+    // Gson
+    implementation 'com.google.code.gson:gson:2.8.9'
+}
+
+processResources {
+    inputs.property "version", project.version
+    filteringCharset "UTF-8"
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
